@@ -33,6 +33,15 @@ export async function processCandidateFromSignals(signals) {
     return;
   }
 
+  // Per-mint dedup: skip if we already processed this mint recently
+  const dedupWindowMs = 3 * 60 * 1000; // 3 minutes
+  const lastSeen = seenSignalCandidates.get(signals.mint);
+  if (lastSeen && now() - lastSeen < dedupWindowMs) {
+    console.log(`[candidate] dedup skip ${signals.mint.slice(0, 8)}... (seen ${Math.round((now() - lastSeen) / 1000)}s ago)`);
+    return;
+  }
+  seenSignalCandidates.set(signals.mint, now());
+
   const candidate = await buildCandidate(signals);
   const signature = signals.signature || null;
   const candidateId = upsertCandidate(candidate, signature);
