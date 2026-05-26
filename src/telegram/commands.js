@@ -155,21 +155,10 @@ export async function sendCandidate(chatId, id) {
 }
 
 export async function sendPositions(chatId) {
-  const rows = allPositions(12);
-  if (!rows.length) {
-    return bot.sendMessage(chatId, '📍 <b>Positions</b>\n\nNo dry-run positions yet.', { parse_mode: 'HTML', disable_web_page_preview: true });
-  }
-  // Refresh open positions in parallel for real-time PnL
-  const refreshed = await Promise.all(rows.map(async (row) => {
-    if (row.status !== 'open') return row;
-    const result = await refreshPosition(row, { autoExit: row.execution_mode !== 'live' }).catch((err) => {
-      console.log(`[position] refresh ${row.id} ${err.message}`);
-      return null;
-    });
-    return result ? { ...row, ...result } : row;
-  }));
-  const text = refreshed.map(formatPosition).join('\n\n');
-  await bot.sendMessage(chatId, `📍 <b>Positions</b>\n\n${text}`, { parse_mode: 'HTML', disable_web_page_preview: true });
+  // Reuse positionsTextAsync which has its own 15s cache to avoid API spam
+  const { positionsTextAsync } = await import('./menus.js');
+  const text = await positionsTextAsync();
+  await bot.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true });
 }
 
 export async function sendPosition(chatId, id, query = null) {

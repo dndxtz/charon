@@ -190,6 +190,34 @@ export function positionsText() {
   return `📍 <b>Positions</b>\n\n${text}`;
 }
 
+let _positionsCache = null;
+let _positionsCacheAt = 0;
+const POSITIONS_CACHE_TTL_MS = 15_000;
+
+export async function positionsTextAsync() {
+  const now = Date.now();
+  if (_positionsCache && now - _positionsCacheAt < POSITIONS_CACHE_TTL_MS) {
+    return _positionsCache;
+  }
+  const rows = allPositions(12);
+  if (!rows.length) {
+    const text = '📍 <b>Positions</b>\n\nNo dry-run positions yet.';
+    _positionsCache = text;
+    _positionsCacheAt = now;
+    return text;
+  }
+  const { refreshPosition } = await import('../execution/positions.js');
+  const refreshed = await Promise.all(rows.map(async (row) => {
+    if (row.status !== 'open') return row;
+    const result = await refreshPosition(row, { autoExit: false }).catch(() => null);
+    return result ? { ...row, ...result } : row;
+  }));
+  const text = `📍 <b>Positions</b>\n\n${refreshed.map(formatPosition).join('\n\n')}`;
+  _positionsCache = text;
+  _positionsCacheAt = now;
+  return text;
+}
+
 export function strategyMenuText() {
   const strat = activeStrategy();
   const all = allStrategies();
