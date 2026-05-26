@@ -109,8 +109,19 @@ const sellInProgress = new Set();
 
 export async function refreshPosition(position, { autoExit = true, jupiterPnl = null } = {}) {
   const asset = await fetchJupiterAsset(position.mint);
-  const price = firstPositiveNumber(asset?.usdPrice, position.high_water_price, position.entry_price);
-  const mcap = firstPositiveNumber(asset?.mcap, asset?.fdv, position.high_water_mcap, position.entry_mcap);
+  let price = firstPositiveNumber(asset?.usdPrice, position.high_water_price, position.entry_price);
+  let mcap = firstPositiveNumber(asset?.mcap, asset?.fdv, position.high_water_mcap, position.entry_mcap);
+
+  // Fallback to GMGN if Jupiter didn't return valid price/mcap
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(mcap) || mcap <= 0) {
+    const gmgn = await fetchGmgnTokenInfo(position.mint, false).catch(() => null);
+    if (gmgn) {
+      const gmgnPrice = tokenPriceFromGmgn(gmgn);
+      const gmgnMcap = marketCapFromGmgn(gmgn);
+      if (Number.isFinite(gmgnPrice) && gmgnPrice > 0) price = gmgnPrice;
+      if (Number.isFinite(gmgnMcap) && gmgnMcap > 0) mcap = gmgnMcap;
+    }
+  }
   if (!Number.isFinite(Number(mcap)) || !Number.isFinite(Number(position.entry_mcap)) || Number(position.entry_mcap) <= 0) {
     return null;
   }
