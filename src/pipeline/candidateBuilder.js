@@ -27,8 +27,8 @@ export function signalLabel(signals = {}) {
   ].filter(Boolean).join(' + ') || signals.route || 'unknown';
 }
 
-export function filterCandidate(candidate) {
-  const strat = activeStrategy();
+export function filterCandidate(candidate, strat) {
+  strat = strat || activeStrategy();
   const failures = [];
   const mcap = candidate.metrics.marketCapUsd;
   const totalFees = candidate.metrics.gmgnTotalFeesSol;
@@ -117,12 +117,20 @@ export function filterCandidate(candidate) {
 
 export async function buildCandidate({ mint, fee = null, signature = null, graduatedCoin = null, trendingToken = null, route }) {
   const strat = activeStrategy();
-  const gmgn = await fetchGmgnTokenInfo(mint);
-  const jupiterAsset = await fetchJupiterAsset(mint);
-  const holders = await fetchJupiterHolders(mint);
-  const chart = await fetchJupiterChartContext(mint);
-  const savedWalletExposure = await fetchSavedWalletExposure(mint, holders);
-  const twitterNarrative = await fetchTwitterNarrative(graduatedCoin || jupiterAsset, gmgn);
+
+  // Parallel fetch all independent API calls
+  const [gmgn, jupiterAsset, holders, chart] = await Promise.all([
+    fetchGmgnTokenInfo(mint),
+    fetchJupiterAsset(mint),
+    fetchJupiterHolders(mint),
+    fetchJupiterChartContext(mint),
+  ]);
+
+  // Dependent calls (need holders/gmgn data)
+  const [savedWalletExposure, twitterNarrative] = await Promise.all([
+    fetchSavedWalletExposure(mint, holders),
+    fetchTwitterNarrative(graduatedCoin || jupiterAsset, gmgn),
+  ]);
   const priceUsd = firstPositiveNumber(tokenPriceFromGmgn(gmgn), jupiterAsset?.usdPrice, trendingToken?.price);
   const marketCapUsd = firstPositiveNumber(
     marketCapFromGmgn(gmgn),
@@ -186,6 +194,6 @@ export async function buildCandidate({ mint, fee = null, signature = null, gradu
     twitterNarrative,
     createdAtMs: now(),
   };
-  candidate.filters = filterCandidate(candidate);
+  candidate.filters = filterCandidate(candidate, strat);
   return candidate;
 }

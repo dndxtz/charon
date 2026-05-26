@@ -19,6 +19,9 @@ import { escapeHtml } from '../format.js';
 
 export const seenSignalCandidates = new Map();
 
+// Prune old entries every 60s to prevent memory leak
+setInterval(() => pruneSeen(seenSignalCandidates, 10 * 60 * 1000), 60_000);
+
 setDegenHandler(maybeProcessDegenCandidate);
 setCandidateHandler(processCandidateFromSignals);
 
