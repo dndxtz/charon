@@ -1,7 +1,32 @@
 import { db } from './connection.js';
 
+const settingCache = new Map();
+let settingCacheAt = 0;
+const SETTING_CACHE_TTL = 5000; // 5 detik, cukup untuk 1 execution flow
+
+function refreshSettingCache() {
+  settingCacheAt = Date.now();
+  const rows = db.prepare('SELECT key, value FROM settings').all();
+  settingCache.clear();
+  for (const row of rows) settingCache.set(row.key, row.value);
+}
+
+function getCachedSetting(key) {
+  if (Date.now() - settingCacheAt > SETTING_CACHE_TTL || !settingCache.size) {
+    refreshSettingCache();
+  }
+  return settingCache.get(key);
+}
+
+/** Invalidate setting cache (call after setSetting / strategy update) */
+export function invalidateSettingCache() {
+  settingCacheAt = 0;
+  settingCache.clear();
+}
+
 export function setting(key, fallback = '') {
-  return db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? fallback;
+  const val = getCachedSetting(key);
+  return val !== undefined ? val : fallback;
 }
 
 export function setSetting(key, value) {
@@ -9,6 +34,7 @@ export function setSetting(key, value) {
     INSERT INTO settings (key, value) VALUES (?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
   `).run(key, String(value));
+  invalidateSettingCache();
 }
 
 export function boolSetting(key, fallback = false) {
@@ -58,6 +84,7 @@ export function setActiveStrategy(id) {
   db.prepare('UPDATE strategies SET enabled = 1 WHERE id = ?').run(id);
   strategyCache.config = null;
   strategyCache.at = 0;
+  invalidateSettingCache();
 }
 
 export function updateStrategyConfig(id, config) {
@@ -66,6 +93,7 @@ export function updateStrategyConfig(id, config) {
     strategyCache.config = null;
     strategyCache.at = 0;
   }
+  invalidateSettingCache();
 }
 
 export function strategySetting(key, fallback) {

@@ -55,7 +55,7 @@ function normalizeJupiterTrendingRow(row, interval, rank) {
   };
 }
 
-async function fetchJupiterAsset(mint, { useCache = true, ttlMs = 20_000 } = {}) {
+async function fetchJupiterAsset(mint, { useCache = true, ttlMs = 10_000 } = {}) {
   const cached = jupiterAssetCache.get(mint);
   if (useCache && cached && now() - cached.at < ttlMs) return cached.data;
   if (jupiterAssetBackoffActive()) return cached?.data || null;

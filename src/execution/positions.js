@@ -142,7 +142,7 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
   let closed = false;
 
   // Max hold time check
-  const strat = strategyById(position.strategy_id);
+  const strat = position._strat || strategyById(position.strategy_id);
   if (strat?.max_hold_ms > 0 && (now() - position.opened_at_ms) >= strat.max_hold_ms) {
     exitReason = 'MAX_HOLD';
   }
@@ -183,11 +183,15 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
   let finalPnlPercent = pnlPercent;
   let finalPnlSol = pnlSol;
 
-  db.prepare(`
-    UPDATE dry_run_positions
-    SET high_water_mcap = ?, high_water_price = ?, trailing_armed = ?
-    WHERE id = ?
-  `).run(highWaterMcap, highWaterPrice, trailingArmed ? 1 : 0, position.id);
+  // Only update high_water if actually changed (reduce DB writes)
+  const prevHwm = Number(position.high_water_mcap || 0);
+  const prevHwp = Number(position.high_water_price || 0);
+  const prevArmed = position.trailing_armed ? 1 : 0;
+  const armed = trailingArmed ? 1 : 0;
+  if (Number(highWaterMcap) !== prevHwm || Number(highWaterPrice) !== prevHwp || armed !== prevArmed) {
+    db.prepare('UPDATE dry_run_positions SET high_water_mcap = ?, high_water_price = ?, trailing_armed = ? WHERE id = ?')
+      .run(highWaterMcap, highWaterPrice, armed, position.id);
+  }
 
   if (exitReason && autoExit && position.execution_mode === 'live') {
     if (sellInProgress.has(position.id)) return { ...position, exitReason: null };
@@ -250,19 +254,41 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
 
 export async function monitorPositions() {
   const positions = openPositions();
+  if (!positions.length) return;
+
+  // Batch strategy lookup — avoid N identical DB queries
+  const strategyCache = new Map();
+  function getStrategy(id) {
+    if (strategyCache.has(id)) return strategyCache.get(id);
+    const s = strategyById(id);
+    strategyCache.set(id, s);
+    return s;
+  }
+
   let walletPnlData = {};
   const pubkey = liveWalletPubkey();
   if (pubkey && positions.some(p => p.execution_mode === 'live')) {
     walletPnlData = await fetchJupiterWalletPnl(pubkey);
   }
-  for (const position of positions) {
+
+  // Refresh all positions in parallel for faster monitoring
+  const results = await Promise.all(positions.map(async (position) => {
     const jupiterPnl = position.execution_mode === 'live'
       ? (walletPnlData[position.mint]?.pnl || null)
       : null;
-    const result = await refreshPosition(position, { autoExit: true, jupiterPnl }).catch((err) => {
+    try {
+      // Inject strategy cache to avoid repeated DB lookups
+      position._strat = getStrategy(position.strategy_id);
+      const result = await refreshPosition(position, { autoExit: true, jupiterPnl });
+      return result;
+    } catch (err) {
       console.log(`[position] ${position.id} ${err.message}`);
       return null;
-    });
+    }
+  }));
+
+  // Send exit notifications (sequential to avoid Telegram rate limit)
+  for (const result of results) {
     if (result?.exitReason) await sendPositionExit(result);
   }
 }
