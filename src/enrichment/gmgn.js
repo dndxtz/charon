@@ -17,7 +17,7 @@ const gmgnBackoff = {
 let consecutiveGmgnSuccess = 0;
 let consecutiveGmgnRateLimit = 0;
 const BASE_DELAY_MS = 2500;
-const MIN_DELAY_MS = 500;
+const MIN_DELAY_MS = 2000;
 const MAX_DELAY_MS = 10_000;
 
 function getAdaptiveDelayMs() {
