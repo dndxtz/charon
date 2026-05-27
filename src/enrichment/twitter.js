@@ -1,6 +1,29 @@
 import axios from 'axios';
 import { now } from '../utils.js';
 
+// Cache: tweet URL → { data, timestamp }
+const tweetCache = new Map();
+const TWEET_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function getCachedTweet(url) {
+  const entry = tweetCache.get(url);
+  if (!entry) return null;
+  if (now() - entry.timestamp > TWEET_CACHE_TTL_MS) {
+    tweetCache.delete(url);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedTweet(url, data) {
+  tweetCache.set(url, { data, timestamp: now() });
+  // Prune oldest entries if cache too large
+  if (tweetCache.size > 500) {
+    const oldest = tweetCache.keys().next().value;
+    tweetCache.delete(oldest);
+  }
+}
+
 function extractTweetUrl(input) {
   const urls = [
     input?.twitter,
@@ -81,31 +104,27 @@ function viralityScore(metrics) {
 async function fetchTwitterNarrative(graduatedCoin, gmgn) {
   const url = extractTweetUrl(graduatedCoin) || extractTweetUrl(gmgn);
   if (!url) return null;
+
+  // Check cache first
+  const cached = getCachedTweet(url);
+  if (cached) return cached;
+
+  const apiUrl = toFxTwitterApi(url);
   try {
-    const apiUrl = toFxTwitterApi(url);
     const api = await axios.get(apiUrl, {
       timeout: 8000,
       headers: { Accept: 'application/json' },
     });
     const text = extractTweetTextFromFx(api.data);
     const metrics = extractTweetMetricsFromFx(api.data);
-    return { url, fxUrl: toFxTwitter(url), apiUrl, text, metrics, virality: viralityScore(metrics) };
+    const result = { url, fxUrl: toFxTwitter(url), apiUrl, text, metrics, virality: viralityScore(metrics) };
+    setCachedTweet(url, result);
+    return result;
   } catch (apiErr) {
     console.log(`[twitter] api ${url} ${apiErr.response?.status || ''} ${apiErr.message}`);
-  }
-
-  try {
-    const fxUrl = toFxTwitter(url);
-    const res = await axios.get(fxUrl, {
-      timeout: 8000,
-      headers: { Accept: 'text/html,application/json' },
-    });
-    const text = extractTweetTextFromFx(res.data);
-    const metrics = extractTweetMetricsFromFx(res.data);
-    return { url, fxUrl, text, metrics, virality: viralityScore(metrics) };
-  } catch (err) {
-    console.log(`[twitter] ${url} ${err.message}`);
-    return { url, fxUrl: toFxTwitter(url), text: null, error: err.message };
+    // Cache the failure briefly to avoid re-hitting broken endpoints
+    setCachedTweet(url, { url, fxUrl: toFxTwitter(url), text: null, error: apiErr.message });
+    return null;
   }
 }
 
