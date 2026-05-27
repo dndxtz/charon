@@ -13,8 +13,30 @@ const gmgnBackoff = {
   trendingReason: '',
 };
 
+// Adaptive delay: auto-tune based on rate limit responses
+let consecutiveGmgnSuccess = 0;
+let consecutiveGmgnRateLimit = 0;
+const BASE_DELAY_MS = 2500;
+const MIN_DELAY_MS = 500;
+const MAX_DELAY_MS = 10_000;
+
+function getAdaptiveDelayMs() {
+  // If user set explicit delay via settings, respect it
+  const explicitDelay = numSetting('gmgn_request_delay_ms', 0);
+  if (explicitDelay > 0) return explicitDelay;
+  // Auto-tune: reduce delay after successes, increase after rate limits
+  if (consecutiveGmgnRateLimit > 0) {
+    const multiplier = Math.min(4, 1 + consecutiveGmgnRateLimit * 0.5);
+    return Math.min(MAX_DELAY_MS, Math.floor(BASE_DELAY_MS * multiplier));
+  }
+  if (consecutiveGmgnSuccess >= 10) {
+    return Math.max(MIN_DELAY_MS, Math.floor(BASE_DELAY_MS * 0.6));
+  }
+  return BASE_DELAY_MS;
+}
+
 async function paceGmgnRequest() {
-  const delayMs = Math.max(0, numSetting('gmgn_request_delay_ms', 2500));
+  const delayMs = getAdaptiveDelayMs();
   if (!delayMs) return;
   const elapsed = now() - lastGmgnRequestAt;
   if (elapsed < delayMs) await sleep(delayMs - elapsed);
@@ -74,10 +96,16 @@ async function gmgnFetch(pathname, { params = {} } = {}) {
       } catch {
         payload = { raw: text };
       }
-      if (res.ok) return payload;
+      if (res.ok) {
+        consecutiveGmgnSuccess++;
+        consecutiveGmgnRateLimit = 0;
+        return payload;
+      }
       const message = gmgnErrorText(res.status, payload, `GMGN ${pathname} ${res.status}`);
       const rateLimited = res.status === 429 || /rate limit|temporarily banned/i.test(String(message));
       if (rateLimited && attempt < maxRetries) {
+        consecutiveGmgnRateLimit++;
+        consecutiveGmgnSuccess = 0;
         const retryAfter = Number(res.headers.get('retry-after'));
         const backoffMs = Number.isFinite(retryAfter)
           ? retryAfter * 1000

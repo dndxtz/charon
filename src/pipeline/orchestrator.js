@@ -29,6 +29,16 @@ setInterval(() => { consecutiveLowConfidence = 0; }, 5 * 60 * 1000);
 // Prune old entries every 60s to prevent memory leak
 setInterval(() => pruneSeen(seenSignalCandidates, 10 * 60 * 1000), 60_000);
 
+// Hard cap: never exceed 500 entries (LRU eviction)
+setInterval(() => {
+  if (seenSignalCandidates.size > 500) {
+    const entries = [...seenSignalCandidates.entries()];
+    entries.sort((a, b) => a[1] - b[1]); // oldest first
+    const toRemove = entries.slice(0, entries.length - 400); // keep newest 400
+    for (const [key] of toRemove) seenSignalCandidates.delete(key);
+  }
+}, 5 * 60_1000);
+
 setDegenHandler(maybeProcessDegenCandidate);
 setCandidateHandler(processCandidateFromSignals);
 
