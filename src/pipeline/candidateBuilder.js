@@ -229,10 +229,9 @@ export async function buildCandidate({ mint, fee = null, signature = null, gradu
     twitterNarrative,
     createdAtMs: now(),
   };
-  const baseFilters = filterCandidate(candidate, strat);
-  // Merge pre-filter failures (chart was skipped for these, so only basic filter failures)
+  // If pre-filter already failed, skip full filterCandidate (chart was skipped, saves DB calls on repeated checks)
   candidate.filters = preFailures.length > 0
-    ? { passed: false, failures: [...preFailures, ...baseFilters.failures], strategy: baseFilters.strategy }
-    : baseFilters;
+    ? { passed: false, failures: preFailures, strategy: strat.id }
+    : filterCandidate(candidate, strat);
   return candidate;
 }

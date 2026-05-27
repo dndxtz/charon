@@ -50,7 +50,7 @@ export function candidateSummary(candidate, decision = null) {
     chartWindow ? [
       `ATH ctx: ${fmtPct(chartWindow.belowHighPercent)} from 24h high`,
       `Range low: ${fmtPct(chartWindow.aboveLowPercent)}`,
-      `Top risk: ${candidate.chart.topBlastRisk ? 'yes' : 'no'}`,
+      `Top risk: ${candidate.chart?.topBlastRisk ? 'yes' : 'no'}`,
     ].join(' · ') : null,
     candidate.twitterNarrative?.metrics ? [
       `Tweet: ${candidate.twitterNarrative.metrics.likes} likes`,

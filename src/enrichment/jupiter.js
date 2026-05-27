@@ -6,7 +6,7 @@ const jupiterAssetCache = new Map();
 const jupiterHoldersCache = new Map();
 let jupiterAssetBackoffUntil = 0;
 let jupiterHoldersBackoffUntil = 0;
-const JUPITERS_HOLDERS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const JUPITER_HOLDERS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 function jupiterAssetBackoffActive() {
   return now() < jupiterAssetBackoffUntil;
@@ -115,7 +115,7 @@ async function estimateTokenAmountFromSol(sizeSol, entryPrice) {
 
 async function fetchJupiterHolders(mint) {
   const cached = jupiterHoldersCache.get(mint);
-  if (cached && now() - cached.at < JUPITERS_HOLDERS_CACHE_TTL) return cached.data;
+  if (cached && now() - cached.at < JUPITER_HOLDERS_CACHE_TTL) return cached.data;
   if (jupiterHoldersBackoffActive()) return cached?.data || { count: 0, holders: [], top20: [], top20Percent: null, maxHolderPercent: null };
   try {
     const res = await axios.get(`https://datapi.jup.ag/v1/holders/${mint}`, {
