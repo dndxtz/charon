@@ -166,11 +166,9 @@ export async function buildCandidate({ mint, fee = null, signature = null, gradu
   }
 
   // Phase 2: Expensive fetches only if pre-filter passes
-  const chart = preFailures.length === 0
-    ? await fetchJupiterChartContext(mint).catch(() => null)
-    : null;
-
-  const [savedWalletExposure, twitterNarrative] = await Promise.all([
+  // Chart, saved wallet exposure, and twitter are independent — fetch in parallel
+  const [chart, savedWalletExposure, twitterNarrative] = await Promise.all([
+    preFailures.length === 0 ? fetchJupiterChartContext(mint).catch(() => null) : Promise.resolve(null),
     fetchSavedWalletExposure(mint, holders),
     fetchTwitterNarrative(graduatedCoin || jupiterAsset, gmgn),
   ]);
