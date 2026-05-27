@@ -271,21 +271,24 @@ export async function monitorPositions() {
     walletPnlData = await fetchJupiterWalletPnl(pubkey);
   }
 
-  // Refresh all positions in parallel for faster monitoring
-  const results = await Promise.all(positions.map(async (position) => {
+  // Refresh positions with staggered delays to avoid Jupiter rate limits
+  // instead of all-at-once Promise.all
+  const results = [];
+  for (const position of positions) {
     const jupiterPnl = position.execution_mode === 'live'
       ? (walletPnlData[position.mint]?.pnl || null)
       : null;
     try {
-      // Inject strategy cache to avoid repeated DB lookups
       position._strat = getStrategy(position.strategy_id);
       const result = await refreshPosition(position, { autoExit: true, jupiterPnl });
-      return result;
+      results.push(result);
     } catch (err) {
       console.log(`[position] ${position.id} ${err.message}`);
-      return null;
+      results.push(null);
     }
-  }));
+    // Small delay between positions to avoid rate limits
+    if (positions.length > 1) await new Promise(r => setTimeout(r, 500));
+  }
 
   // Send exit notifications (sequential to avoid Telegram rate limit)
   for (const result of results) {

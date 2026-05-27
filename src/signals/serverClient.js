@@ -20,11 +20,6 @@ function prune(map, ttlMs) {
   }
 }
 
-function signalKey(signal) {
-  const sources = (signal.sources || []).sort().join('+');
-  return `${signal.mint}:${sources}`;
-}
-
 async function triggerCandidate({ mint, fee, signature, graduatedCoin, trendingToken, route }) {
   if (!candidateHandler) return;
   await candidateHandler({ mint, fee, signature, graduatedCoin, trendingToken, route });

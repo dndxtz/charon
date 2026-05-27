@@ -48,6 +48,7 @@ export function numSetting(key, fallback = 0) {
 }
 
 const strategyCache = { id: null, config: null, at: 0 };
+const strategyByIdCache = new Map();
 
 export function activeStrategy() {
   if (strategyCache.config && Date.now() - strategyCache.at < 5000) return strategyCache.config;
@@ -65,9 +66,13 @@ export function activeStrategy() {
 }
 
 export function strategyById(id) {
+  const cached = strategyByIdCache.get(id);
+  if (cached && Date.now() - cached.at < 30_000) return cached.config;
   const row = db.prepare('SELECT * FROM strategies WHERE id = ?').get(id);
   if (!row) return null;
-  return { id: row.id, name: row.name, ...JSON.parse(row.config_json) };
+  const config = { id: row.id, name: row.name, ...JSON.parse(row.config_json) };
+  strategyByIdCache.set(id, { config, at: Date.now() });
+  return config;
 }
 
 export function allStrategies() {

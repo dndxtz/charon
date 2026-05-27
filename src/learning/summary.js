@@ -20,9 +20,19 @@ export function summarizeLearningWindow(windowMs) {
   const totalPnlPercent = closed.reduce((sum, position) => sum + Number(position.pnl_percent || 0), 0);
   const totalPnlSol = closed.reduce((sum, position) => sum + Number(position.pnl_sol || 0), 0);
   const byRoute = new Map();
+  // Pre-parse route from snapshot once per position to avoid repeated JSON parsing
+  const positionRoutes = new Map();
+  function getPositionRoute(position) {
+    let route = positionRoutes.get(position.id);
+    if (route === undefined) {
+      const candidate = safeJson(position.snapshot_json, {})?.candidate || {};
+      route = candidate.signals?.route || candidate.signals?.label || 'unknown';
+      positionRoutes.set(position.id, route);
+    }
+    return route;
+  }
   for (const position of closed) {
-    const candidate = positionSnapshotCandidate(position);
-    const route = candidate.signals?.route || candidate.signals?.label || 'unknown';
+    const route = getPositionRoute(position);
     const row = byRoute.get(route) || { route, count: 0, wins: 0, losses: 0, pnlPercent: 0, pnlSol: 0 };
     row.count += 1;
     row.wins += Number(position.pnl_percent || 0) > 0 ? 1 : 0;
@@ -44,23 +54,24 @@ export function summarizeLearningWindow(windowMs) {
     GROUP BY action
     ORDER BY count DESC
   `).all(cutoff);
-  const best = [...closed].sort((a, b) => Number(b.pnl_percent || 0) - Number(a.pnl_percent || 0)).slice(0, 5).map(position => ({
+  closed.sort((a, b) => Number(b.pnl_percent || 0) - Number(a.pnl_percent || 0));
+  const best = closed.slice(0, 5).map(position => ({
     mint: position.mint,
     symbol: position.symbol,
     pnlPercent: Number(position.pnl_percent || 0),
     exitReason: position.exit_reason,
     entryMcap: position.entry_mcap,
     exitMcap: position.exit_mcap,
-    route: positionSnapshotCandidate(position).signals?.route || 'unknown',
+    route: getPositionRoute(position),
   }));
-  const worst = [...closed].sort((a, b) => Number(a.pnl_percent || 0) - Number(b.pnl_percent || 0)).slice(0, 5).map(position => ({
+  const worst = closed.slice(-5).reverse().map(position => ({
     mint: position.mint,
     symbol: position.symbol,
     pnlPercent: Number(position.pnl_percent || 0),
     exitReason: position.exit_reason,
     entryMcap: position.entry_mcap,
     exitMcap: position.exit_mcap,
-    route: positionSnapshotCandidate(position).signals?.route || 'unknown',
+    route: getPositionRoute(position),
   }));
   return {
     windowMs,
