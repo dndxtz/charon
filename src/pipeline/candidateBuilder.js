@@ -118,19 +118,13 @@ export function filterCandidate(candidate, strat) {
 export async function buildCandidate({ mint, fee = null, signature = null, graduatedCoin = null, trendingToken = null, route }) {
   const strat = activeStrategy();
 
-  // Parallel fetch all independent API calls
-  const [gmgn, jupiterAsset, holders, chart] = await Promise.all([
+  // Phase 1: Fetch basic data needed for cheap filters
+  const [gmgn, jupiterAsset, holders] = await Promise.all([
     fetchGmgnTokenInfo(mint),
     fetchJupiterAsset(mint),
     fetchJupiterHolders(mint),
-    fetchJupiterChartContext(mint),
   ]);
 
-  // Dependent calls (need holders/gmgn data)
-  const [savedWalletExposure, twitterNarrative] = await Promise.all([
-    fetchSavedWalletExposure(mint, holders),
-    fetchTwitterNarrative(graduatedCoin || jupiterAsset, gmgn),
-  ]);
   const priceUsd = firstPositiveNumber(tokenPriceFromGmgn(gmgn), jupiterAsset?.usdPrice, trendingToken?.price);
   const marketCapUsd = firstPositiveNumber(
     marketCapFromGmgn(gmgn),
@@ -140,6 +134,47 @@ export async function buildCandidate({ mint, fee = null, signature = null, gradu
     graduatedCoin?.marketCap,
     graduatedCoin?.usd_market_cap,
   );
+  const holderCount = Number(gmgn?.holder_count ?? jupiterAsset?.holderCount ?? trendingToken?.holder_count ?? graduatedCoin?.numHolders ?? 0);
+  const trendingVolume = Number(trendingToken?.volume ?? 0);
+  const trendingSwaps = Number(trendingToken?.swaps ?? 0);
+  const feeSol = fee ? lamToSol(fee.distributed) : null;
+
+  // Pre-filter: cheap checks before expensive chart fetch
+  const preFailures = [];
+  if (strat.min_mcap_usd > 0 && (!Number.isFinite(marketCapUsd) || marketCapUsd < strat.min_mcap_usd)) {
+    preFailures.push(`market cap min: ${marketCapUsd} < ${strat.min_mcap_usd}`);
+  }
+  if (strat.max_mcap_usd > 0 && Number.isFinite(marketCapUsd) && marketCapUsd > strat.max_mcap_usd) {
+    preFailures.push(`market cap max: ${marketCapUsd} > ${strat.max_mcap_usd}`);
+  }
+  if (strat.min_holders > 0 && holderCount < strat.min_holders) {
+    preFailures.push(`holders: ${holderCount} < ${strat.min_holders}`);
+  }
+  if (trendingToken) {
+    if (strat.trending_min_volume_usd > 0 && trendingVolume < strat.trending_min_volume_usd) {
+      preFailures.push(`trending volume: ${trendingVolume} < ${strat.trending_min_volume_usd}`);
+    }
+    if (strat.trending_min_swaps > 0 && trendingSwaps < strat.trending_min_swaps) {
+      preFailures.push(`trending swaps: ${trendingSwaps} < ${strat.trending_min_swaps}`);
+    }
+  }
+  if (fee && strat.min_fee_claim_sol > 0 && feeSol < strat.min_fee_claim_sol) {
+    preFailures.push(`fee claim: ${feeSol} SOL < min ${strat.min_fee_claim_sol} SOL`);
+  }
+  if (!fee && strat.require_fee_claim) {
+    preFailures.push('fee claim: missing (required by strategy)');
+  }
+
+  // Phase 2: Expensive fetches only if pre-filter passes
+  const chart = preFailures.length === 0
+    ? await fetchJupiterChartContext(mint).catch(() => null)
+    : null;
+
+  const [savedWalletExposure, twitterNarrative] = await Promise.all([
+    fetchSavedWalletExposure(mint, holders),
+    fetchTwitterNarrative(graduatedCoin || jupiterAsset, gmgn),
+  ]);
+
   const signalRoute = route || [
     fee ? 'fee' : null,
     graduatedCoin ? 'graduated' : null,
@@ -194,6 +229,10 @@ export async function buildCandidate({ mint, fee = null, signature = null, gradu
     twitterNarrative,
     createdAtMs: now(),
   };
-  candidate.filters = filterCandidate(candidate, strat);
+  const baseFilters = filterCandidate(candidate, strat);
+  // Merge pre-filter failures (chart was skipped for these, so only basic filter failures)
+  candidate.filters = preFailures.length > 0
+    ? { passed: false, failures: [...preFailures, ...baseFilters.failures], strategy: baseFilters.strategy }
+    : baseFilters;
   return candidate;
 }

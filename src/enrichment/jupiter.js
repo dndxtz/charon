@@ -3,7 +3,10 @@ import { WSOL_MINT, JSON_HEADERS } from '../config.js';
 import { now } from '../utils.js';
 
 const jupiterAssetCache = new Map();
+const jupiterHoldersCache = new Map();
 let jupiterAssetBackoffUntil = 0;
+let jupiterHoldersBackoffUntil = 0;
+const JUPITERS_HOLDERS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 function jupiterAssetBackoffActive() {
   return now() < jupiterAssetBackoffUntil;
@@ -15,6 +18,18 @@ function setJupiterAssetBackoff(err) {
   const resetMs = resetHeader > 1_000_000_000_000 ? resetHeader : resetHeader * 1000;
   jupiterAssetBackoffUntil = resetMs > now() ? resetMs : now() + 30_000;
   console.log(`[asset] backing off until ${new Date(jupiterAssetBackoffUntil).toISOString()} (429)`);
+}
+
+function jupiterHoldersBackoffActive() {
+  return now() < jupiterHoldersBackoffUntil;
+}
+
+function setJupiterHoldersBackoff(err) {
+  if (err.response?.status !== 429) return;
+  const resetHeader = Number(err.response?.headers?.['x-ratelimit-reset'] || 0);
+  const resetMs = resetHeader > 1_000_000_000_000 ? resetHeader : resetHeader * 1000;
+  jupiterHoldersBackoffUntil = resetMs > now() ? resetMs : now() + 30_000;
+  console.log(`[holders] backing off until ${new Date(jupiterHoldersBackoffUntil).toISOString()} (429)`);
 }
 
 function jupiterStatsForInterval(row, interval) {
@@ -99,6 +114,9 @@ async function estimateTokenAmountFromSol(sizeSol, entryPrice) {
 }
 
 async function fetchJupiterHolders(mint) {
+  const cached = jupiterHoldersCache.get(mint);
+  if (cached && now() - cached.at < JUPITERS_HOLDERS_CACHE_TTL) return cached.data;
+  if (jupiterHoldersBackoffActive()) return cached?.data || { count: 0, holders: [], top20: [], top20Percent: null, maxHolderPercent: null };
   try {
     const res = await axios.get(`https://datapi.jup.ag/v1/holders/${mint}`, {
       timeout: 10_000,
@@ -117,16 +135,19 @@ async function fetchJupiterHolders(mint) {
       };
     });
     const top20 = mapped.slice(0, 20);
-    return {
+    const result = {
       count: holders.length,
       holders: mapped,
       top20,
       top20Percent: top20.reduce((sum, holder) => sum + Number(holder.percent || 0), 0),
       maxHolderPercent: Math.max(0, ...top20.map(holder => Number(holder.percent || 0))),
     };
+    jupiterHoldersCache.set(mint, { at: now(), data: result });
+    return result;
   } catch (err) {
+    setJupiterHoldersBackoff(err);
     console.log(`[holders] ${mint.slice(0, 8)}... ${err.response?.status || ''} ${err.message}`);
-    return { count: 0, holders: [], top20: [], top20Percent: null, maxHolderPercent: null };
+    return cached?.data || { count: 0, holders: [], top20: [], top20Percent: null, maxHolderPercent: null };
   }
 }
 
@@ -234,4 +255,6 @@ export {
   fetchJupiterWalletPnl,
   jupiterAssetBackoffActive,
   setJupiterAssetBackoff,
+  jupiterHoldersBackoffActive,
+  setJupiterHoldersBackoff,
 };

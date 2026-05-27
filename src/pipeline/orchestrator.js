@@ -19,6 +19,13 @@ import { escapeHtml } from '../format.js';
 
 export const seenSignalCandidates = new Map();
 
+// Track consecutive low-confidence LLM decisions for adaptive behavior
+let consecutiveLowConfidence = 0;
+const LOW_CONFIDENCE_WARNING_THRESHOLD = 5;
+
+// Prune low confidence counter periodically
+setInterval(() => { consecutiveLowConfidence = 0; }, 5 * 60 * 1000);
+
 // Prune old entries every 60s to prevent memory leak
 setInterval(() => pruneSeen(seenSignalCandidates, 10 * 60 * 1000), 60_000);
 
@@ -70,9 +77,39 @@ export async function processCandidateFromSignals(signals) {
       raw: null,
     };
   } else {
-    rows = recentEligibleCandidates(numSetting('llm_candidate_pick_count', 10));
-    batchDecision = await decideCandidateBatch(rows, candidateId);
-    batchId = storeBatchDecision(candidateId, rows, batchDecision);
+    // Early-exit: if too many consecutive low-confidence results, skip LLM for this candidate
+    const minConf = numSetting('llm_min_confidence', 75);
+    if (consecutiveLowConfidence >= LOW_CONFIDENCE_WARNING_THRESHOLD && strat.use_llm) {
+      console.log(`[agent] low confidence streak (${consecutiveLowConfidence}), skipping LLM for ${candidate.token.mint.slice(0, 8)}...`);
+      rows = [];
+      batchId = null;
+      batchDecision = {
+        verdict: 'WATCH',
+        confidence: 0,
+        selected_candidate_id: null,
+        selected_mint: null,
+        selected_row: null,
+        reason: `Skipped LLM: ${consecutiveLowConfidence} consecutive low-confidence results. Filters passed but market conditions weak.`,
+        risks: ['low_confidence_streak'],
+        suggested_tp_percent: strat.tp_percent ?? numSetting('default_tp_percent', 50),
+        suggested_sl_percent: strat.sl_percent ?? numSetting('default_sl_percent', -25),
+        raw: null,
+      };
+    } else {
+      rows = recentEligibleCandidates(numSetting('llm_candidate_pick_count', 10));
+      batchDecision = await decideCandidateBatch(rows, candidateId);
+      batchId = storeBatchDecision(candidateId, rows, batchDecision);
+    }
+  }
+
+  // Track low-confidence streak
+  if (strat.use_llm && batchDecision.verdict !== 'BUY' && batchDecision.confidence < numSetting('llm_min_confidence', 75)) {
+    consecutiveLowConfidence++;
+    if (consecutiveLowConfidence === LOW_CONFIDENCE_WARNING_THRESHOLD) {
+      console.log(`[agent] ⚠️ ${LOW_CONFIDENCE_WARNING_THRESHOLD} consecutive low-confidence LLM results — auto-skipping LLM until streak breaks`);
+    }
+  } else {
+    consecutiveLowConfidence = 0;
   }
   const selectedRow = batchDecision.selected_row;
   const selectedThisCandidate = selectedRow?.id === candidateId;
