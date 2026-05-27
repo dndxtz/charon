@@ -14,25 +14,37 @@ const gmgnBackoff = {
 };
 
 // Adaptive delay: auto-tune based on rate limit responses
+// Tracks consecutive successes/errors with automatic decay
 let consecutiveGmgnSuccess = 0;
-let consecutiveGmgnRateLimit = 0;
+let consecutiveGmgnErrors = 0;
 const BASE_DELAY_MS = 2500;
 const MIN_DELAY_MS = 2000;
 const MAX_DELAY_MS = 10_000;
+
+// Auto-decay: every 3 minutes without rate limit, reduce error count
+setInterval(() => {
+  if (consecutiveGmgnErrors > 0 && consecutiveGmgnSuccess >= 5) {
+    consecutiveGmgnErrors = Math.max(0, consecutiveGmgnErrors - 1);
+    consecutiveGmgnSuccess = 0; // reset success counter after decay
+  }
+}, 3 * 60 * 1000);
 
 function getAdaptiveDelayMs() {
   // If user set explicit delay via settings, respect it
   const explicitDelay = numSetting('gmgn_request_delay_ms', 0);
   if (explicitDelay > 0) return explicitDelay;
-  // Auto-tune: reduce delay after successes, increase after rate limits
-  if (consecutiveGmgnRateLimit > 0) {
-    const multiplier = Math.min(4, 1 + consecutiveGmgnRateLimit * 0.5);
-    return Math.min(MAX_DELAY_MS, Math.floor(BASE_DELAY_MS * multiplier));
+
+  // No errors → base delay (with optional small reduction after long success streak)
+  if (consecutiveGmgnErrors === 0) {
+    if (consecutiveGmgnSuccess >= 20) {
+      return MIN_DELAY_MS; // 2000ms after 20 consecutive successes
+    }
+    return BASE_DELAY_MS; // 2500ms default
   }
-  if (consecutiveGmgnSuccess >= 10) {
-    return Math.max(MIN_DELAY_MS, Math.floor(BASE_DELAY_MS * 0.6));
-  }
-  return BASE_DELAY_MS;
+
+  // Gradual increase: each error adds ~500ms, capped at MAX_DELAY_MS
+  const delay = BASE_DELAY_MS + (consecutiveGmgnErrors - 1) * 500;
+  return Math.min(MAX_DELAY_MS, delay);
 }
 
 async function paceGmgnRequest() {
@@ -98,14 +110,13 @@ async function gmgnFetch(pathname, { params = {} } = {}) {
       }
       if (res.ok) {
         consecutiveGmgnSuccess++;
-        consecutiveGmgnRateLimit = 0;
         return payload;
       }
       const message = gmgnErrorText(res.status, payload, `GMGN ${pathname} ${res.status}`);
       const rateLimited = res.status === 429 || /rate limit|temporarily banned/i.test(String(message));
       if (rateLimited && attempt < maxRetries) {
-        consecutiveGmgnRateLimit++;
-        consecutiveGmgnSuccess = 0;
+        consecutiveGmgnErrors++;
+        consecutiveGmgnSuccess = 0; // reset success streak on error
         const retryAfter = Number(res.headers.get('retry-after'));
         const backoffMs = Number.isFinite(retryAfter)
           ? retryAfter * 1000
