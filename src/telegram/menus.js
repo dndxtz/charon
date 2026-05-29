@@ -38,6 +38,7 @@ export function filtersText() {
     `Max holder: ${strat.max_top20_holder_percent < 100 ? fmtPct(strat.max_top20_holder_percent) : 'off'}`,
     `Min saved holders: ${strat.min_saved_wallet_holders || 'off'}`,
     strat.max_ath_distance_pct < 0 ? `Max ATH distance: ${strat.max_ath_distance_pct}%` : null,
+    strat.min_ath_distance_pct != null && strat.min_ath_distance_pct < 0 ? `Min ATH distance floor: ${strat.min_ath_distance_pct}%` : null,
     '',
     `Min sources: ${strat.min_source_count}`,
     `Fee required: ${strat.require_fee_claim ? 'yes' : 'no'}`,
@@ -75,6 +76,7 @@ export const strategyNumericLabels = {
   max_top20_holder_percent: 'maximum top holder percent',
   min_saved_wallet_holders: 'minimum saved-wallet holders',
   max_ath_distance_pct: 'maximum ATH distance percent (-40 = 40% below ATH, 0 = off)',
+  min_ath_distance_pct: 'minimum ATH distance floor (e.g. -30 = reject tokens fallen >30% from ATH, 0 = off)',
   min_source_count: 'minimum source count',
   token_age_max_ms: 'maximum token age milliseconds',
   trending_min_volume_usd: 'minimum trending volume USD',
@@ -235,6 +237,7 @@ export function strategyMenuText() {
     `Max positions: ${strat.max_open_positions}`,
     strat.min_holders > 0 ? `Min holders: ${strat.min_holders}` : null,
     strat.max_ath_distance_pct < 0 ? `Max ATH distance: ${strat.max_ath_distance_pct}%` : null,
+    strat.min_ath_distance_pct != null && strat.min_ath_distance_pct < 0 ? `Min ATH distance floor: ${strat.min_ath_distance_pct}%` : null,
     strat.partial_tp ? `Partial TP: ${strat.partial_tp_sell_percent}% at ${fmtPct(strat.partial_tp_at_percent)}` : null,
     strat.max_hold_ms > 0 ? `Max hold: ${Math.round(strat.max_hold_ms / 60000)}m` : null,
     strat.use_llm ? `LLM: yes (min ${strat.llm_min_confidence}%)` : 'LLM: no (rule-based)',
@@ -290,6 +293,9 @@ export function strategyKeyboard() {
     [
       { text: `Saved ${strat.min_saved_wallet_holders || 'off'}`, callback_data: 'stratinput:min_saved_wallet_holders' },
       { text: `ATH ${strat.max_ath_distance_pct < 0 ? `${strat.max_ath_distance_pct}%` : 'off'}`, callback_data: 'stratinput:max_ath_distance_pct' },
+    ],
+    [
+      { text: `ATH Floor ${strat.min_ath_distance_pct != null && strat.min_ath_distance_pct < 0 ? `${strat.min_ath_distance_pct}%` : 'off'}`, callback_data: 'stratinput:min_ath_distance_pct' },
     ],
     [
       { text: `Age ${strat.token_age_max_ms > 0 ? Math.round(strat.token_age_max_ms / 60000) + 'm' : 'off'}`, callback_data: 'stratinput:token_age_max_ms' },

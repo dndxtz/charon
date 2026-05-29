@@ -85,12 +85,14 @@ export function filterCandidate(candidate, strat) {
     failures.push(`saved wallet holders: ${savedCount} < ${strat.min_saved_wallet_holders}`);
   }
 
-  // ATH distance (dip buy strategy)
-  if (strat.max_ath_distance_pct < 0) {
-    const athDist = candidate.chart?.distanceFromAthPercent;
-    if (athDist != null && athDist > strat.max_ath_distance_pct) {
-      failures.push(`ATH distance: ${athDist.toFixed(0)}% > target ${strat.max_ath_distance_pct}%`);
-    }
+  // ATH distance (dip buy / pullback strategy)
+  const athDist = candidate.chart?.distanceFromAthPercent;
+  if (athDist != null && strat.max_ath_distance_pct < 0 && athDist > strat.max_ath_distance_pct) {
+    failures.push(`ATH distance: ${athDist.toFixed(0)}% > target ${strat.max_ath_distance_pct}%`);
+  }
+  // Min ATH distance — reject tokens that fell too far from ATH (broken / dead)
+  if (strat.min_ath_distance_pct != null && strat.min_ath_distance_pct < 0 && athDist != null && athDist < strat.min_ath_distance_pct) {
+    failures.push(`ATH distance too deep: ${athDist.toFixed(0)}% < floor ${strat.min_ath_distance_pct}%`);
   }
 
   // Trending filters
