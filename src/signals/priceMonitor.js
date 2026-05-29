@@ -7,7 +7,7 @@ let candidateHandler = null;
 
 export function setCandidateHandler(fn) { candidateHandler = fn; }
 
-export function storePriceAlert({ mint, strategyId, alertType, targetPriceUsd, targetAthDistancePercent, signal, expiresMs }) {
+export function storePriceAlert({ mint, strategyId, alertType, targetPriceUsd, targetMcapUsd, targetAthDistancePercent, signal, expiresMs }) {
   // Check if alert already exists for this mint
   const existing = db.prepare(
     "SELECT id FROM price_alerts WHERE mint = ? AND status = 'pending' LIMIT 1"
@@ -15,14 +15,15 @@ export function storePriceAlert({ mint, strategyId, alertType, targetPriceUsd, t
   if (existing) return existing.id;
 
   const result = db.prepare(`
-    INSERT INTO price_alerts (mint, strategy_id, alert_type, target_price_usd, target_ath_distance_percent,
+    INSERT INTO price_alerts (mint, strategy_id, alert_type, target_price_usd, target_mcap_usd, target_ath_distance_percent,
       candidate_json, signals_json, status, created_at_ms, expires_at_ms)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
   `).run(
     mint,
     strategyId,
     alertType,
     targetPriceUsd || null,
+    targetMcapUsd || null,
     targetAthDistancePercent || null,
     json({}),
     json(signal),

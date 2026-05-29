@@ -87,7 +87,7 @@ export async function processCandidateFromSignals(signals) {
       raw: null,
     };
   } else {
-    // Early-exit: if too many consecutive low-confidence results, skip LLM for this candidate
+    // Early-exit: if too many consecutive low-confidence results, skip LLM for remaining batch
     const minConf = numSetting('llm_min_confidence', 75);
     if (consecutiveLowConfidence >= LOW_CONFIDENCE_WARNING_THRESHOLD && strat.use_llm) {
       console.log(`[agent] low confidence streak (${consecutiveLowConfidence}), skipping LLM for ${candidate.token.mint.slice(0, 8)}...`);
@@ -112,8 +112,8 @@ export async function processCandidateFromSignals(signals) {
     }
   }
 
-  // Track low-confidence streak
-  if (strat.use_llm && batchDecision.verdict !== 'BUY' && batchDecision.confidence < numSetting('llm_min_confidence', 75)) {
+  // Track low-confidence streak — reset on any confident verdict (BUY or strong WATCH)
+  if (strat.use_llm && batchDecision.confidence < minConf) {
     consecutiveLowConfidence++;
     if (consecutiveLowConfidence === LOW_CONFIDENCE_WARNING_THRESHOLD) {
       console.log(`[agent] ⚠️ ${LOW_CONFIDENCE_WARNING_THRESHOLD} consecutive low-confidence LLM results — auto-skipping LLM until streak breaks`);

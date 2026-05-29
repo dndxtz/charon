@@ -140,7 +140,7 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
       confidence: 0,
       selected_candidate_id: null,
       selected_mint: null,
-      reason: `LLM failed: ${err.message}`,
+      reason: `LLM failed: ${err.message?.slice(0, 200) || 'unknown'}`,
       risks: ['llm_error'],
       suggested_tp_percent: numSetting('default_tp_percent', 50),
       suggested_sl_percent: numSetting('default_sl_percent', -25),

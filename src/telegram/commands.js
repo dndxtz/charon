@@ -202,6 +202,10 @@ export async function closePosition(chatId, id, reason) {
 
 export async function updatePositionRule(chatId, id, field, nextValue, query = null) {
   if (!Number.isFinite(nextValue)) return bot.sendMessage(chatId, 'Invalid value.');
+  const allowedFields = new Set(['tp_percent', 'sl_percent']);
+  if (!allowedFields.has(field)) return bot.sendMessage(chatId, 'Invalid field.');
+  if (field === 'sl_percent' && nextValue > 0) return bot.sendMessage(chatId, 'SL must be negative (e.g. -25 for 25% stop loss).');
+  if (field === 'tp_percent' && nextValue < 0) return bot.sendMessage(chatId, 'TP must be positive.');
   db.prepare(`UPDATE dry_run_positions SET ${field} = ? WHERE id = ?`).run(nextValue, id);
   const row = db.prepare('SELECT * FROM dry_run_positions WHERE id = ?').get(id);
   if (row) {

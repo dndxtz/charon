@@ -63,7 +63,11 @@ export function candidateById(id) {
 }
 
 export function candidatesByIds(ids) {
-  return ids.map(id => candidateById(Number(id))).filter(Boolean);
+  const validIds = ids.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0);
+  if (!validIds.length) return [];
+  const placeholders = validIds.map(() => '?').join(',');
+  return db.prepare(`SELECT * FROM candidates WHERE id IN (${placeholders})`).all(...validIds)
+    .map(row => ({ ...row, candidate: safeJson(row.candidate_json, {}) }));
 }
 
 export function latestCandidateByMint(mint) {

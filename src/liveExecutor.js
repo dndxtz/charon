@@ -20,6 +20,12 @@ function parseKeypair(secret) {
   return Keypair.fromSecretKey(bs58.decode(value));
 }
 
+export function shutdownLiveExecution() {
+  liveWallet = null;
+  solanaConnection = null;
+  console.log('[live] wallet cleared from memory');
+}
+
 export function initLiveExecution() {
   if (!SOLANA_PRIVATE_KEY) return;
   try {

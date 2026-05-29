@@ -145,17 +145,21 @@ export async function fetchServerSignals() {
         } else {
           // Store price alert for later
           const { storePriceAlert } = await import('./priceMonitor.js');
-          const targetPrice = signal.priceUsd ? signal.priceUsd * (1 + strat.max_ath_distance_pct / 100) : null;
-          storePriceAlert({
-            mint,
-            strategyId: strat.id,
-            alertType: 'dip_target',
-            targetPriceUsd: targetPrice,
-            targetAthDistancePercent: strat.max_ath_distance_pct,
-            signal,
-            expiresMs: 24 * 60 * 60 * 1000,
-          });
-          dipAlerts++;
+          if (signal.priceUsd != null && Number.isFinite(signal.priceUsd)) {
+            const targetPrice = signal.priceUsd * (1 + strat.max_ath_distance_pct / 100);
+            if (Number.isFinite(targetPrice)) {
+              storePriceAlert({
+                mint,
+                strategyId: strat.id,
+                alertType: 'dip_target',
+                targetPriceUsd: targetPrice,
+                targetAthDistancePercent: strat.max_ath_distance_pct,
+                signal,
+                expiresMs: 24 * 60 * 60 * 1000,
+              });
+              dipAlerts++;
+            }
+          }
         }
       } else {
         // Immediate entry mode (sniper, smart_money, degen)

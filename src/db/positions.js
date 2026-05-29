@@ -103,8 +103,9 @@ export function createLivePosition(candidateId, candidate, decision, swap, reaso
         candidate_id, mint, symbol, status, opened_at_ms, size_sol, entry_price, entry_mcap,
         token_amount_est, high_water_price, high_water_mcap, tp_percent, sl_percent,
         trailing_enabled, trailing_percent, trailing_armed, llm_decision_id,
-        execution_mode, entry_signature, token_amount_raw, strategy_id, snapshot_json
-      ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'live', ?, ?, ?, ?)
+        execution_mode, entry_signature, token_amount_raw, strategy_id, snapshot_json,
+        holder_count_at_entry
+      ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'live', ?, ?, ?, ?, ?)
     `).run(
       candidateId,
       candidate.token.mint,
@@ -125,6 +126,7 @@ export function createLivePosition(candidateId, candidate, decision, swap, reaso
       swap.outputAmount || null,
       strat.id,
       json({ candidate, decision, reason, swap, strategy: strat.id }),
+      Number(candidate.metrics.holderCount || 0),
     );
     const positionId = Number(result.lastInsertRowid);
     db.prepare(`
