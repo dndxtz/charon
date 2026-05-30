@@ -101,7 +101,10 @@ export async function fetchGmgnTrending() {
       trending.set(mint, token);
       tracked += 1;
       storeSignalEvent(mint, 'trending', token.source || source, token);
-      if (degenHandler) await degenHandler(mint, token);
+      if (degenHandler) {
+        try { await degenHandler(mint, token); }
+        catch (e) { console.log(`[trending] degenHandler error for ${mint.slice(0, 8)}: ${e.message}`); }
+      }
     }
     console.log(`[trending:${source}] loaded ${rows.length}, accepted ${tracked}, tracking ${trending.size}`);
   } catch (err) {

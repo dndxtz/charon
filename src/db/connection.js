@@ -378,6 +378,8 @@ export function initDb() {
 }
 
 export function ensureColumn(table, column, ddl) {
+  if (!/^[a-z_]+$/.test(table)) throw new Error(`Invalid table name: ${table}`);
+  if (!/^[a-z_]+$/.test(column)) throw new Error(`Invalid column name: ${column}`);
   const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name);
   if (!columns.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
 }

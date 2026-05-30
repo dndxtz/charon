@@ -252,46 +252,55 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
   };
 }
 
+let monitorPositionsRunning = false;
+
 export async function monitorPositions() {
-  const positions = openPositions();
-  if (!positions.length) return;
-
-  // Batch strategy lookup — avoid N identical DB queries
-  const strategyCache = new Map();
-  function getStrategy(id) {
-    if (strategyCache.has(id)) return strategyCache.get(id);
-    const s = strategyById(id);
-    strategyCache.set(id, s);
-    return s;
+  if (monitorPositionsRunning) {
+    console.log('[positions] monitorPositions already running, skipping overlapping tick');
+    return;
   }
+  monitorPositionsRunning = true;
+  try {
+    const positions = openPositions();
+    if (!positions.length) return;
 
-  let walletPnlData = {};
-  const pubkey = liveWalletPubkey();
-  if (pubkey && positions.some(p => p.execution_mode === 'live')) {
-    walletPnlData = await fetchJupiterWalletPnl(pubkey);
-  }
-
-  // Refresh positions with staggered delays to avoid Jupiter rate limits
-  // instead of all-at-once Promise.all
-  const results = [];
-  for (const position of positions) {
-    const jupiterPnl = position.execution_mode === 'live'
-      ? (walletPnlData[position.mint]?.pnl || null)
-      : null;
-    try {
-      position._strat = getStrategy(position.strategy_id);
-      const result = await refreshPosition(position, { autoExit: true, jupiterPnl });
-      results.push(result);
-    } catch (err) {
-      console.log(`[position] ${position.id} ${err.message}`);
-      results.push(null);
+    // Batch strategy lookup — avoid N identical DB queries
+    const strategyCache = new Map();
+    function getStrategy(id) {
+      if (strategyCache.has(id)) return strategyCache.get(id);
+      const s = strategyById(id);
+      strategyCache.set(id, s);
+      return s;
     }
-    // Small delay between positions to avoid rate limits
-    if (positions.length > 1) await new Promise(r => setTimeout(r, 500));
-  }
 
-  // Send exit notifications (sequential to avoid Telegram rate limit)
-  for (const result of results) {
-    if (result?.exitReason) await sendPositionExit(result);
+    let walletPnlData = {};
+    const pubkey = liveWalletPubkey();
+    if (pubkey && positions.some(p => p.execution_mode === 'live')) {
+      walletPnlData = await fetchJupiterWalletPnl(pubkey);
+    }
+
+    // Refresh positions with staggered delays to avoid Jupiter rate limits
+    const results = [];
+    for (const position of positions) {
+      const jupiterPnl = position.execution_mode === 'live'
+        ? (walletPnlData[position.mint]?.pnl || null)
+        : null;
+      try {
+        position._strat = getStrategy(position.strategy_id);
+        const result = await refreshPosition(position, { autoExit: true, jupiterPnl });
+        results.push(result);
+      } catch (err) {
+        console.log(`[position] ${position.id} ${err.message}`);
+        results.push(null);
+      }
+      if (positions.length > 1) await new Promise(r => setTimeout(r, 500));
+    }
+
+    // Send exit notifications (sequential to avoid Telegram rate limit)
+    for (const result of results) {
+      if (result?.exitReason) await sendPositionExit(result);
+    }
+  } finally {
+    monitorPositionsRunning = false;
   }
 }

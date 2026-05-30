@@ -22,9 +22,8 @@ export async function handleFeeClaim(fee, signature) {
   if (!graduatedCoin && !trendingToken) return;
 
   const key = `${signature}:${fee.mint}:${fee.distributed}`;
-  pruneSeen(seenFeeClaims, 10 * 60 * 1000);
+  pruneSeen(seenFeeClaims, 10 * 60_000);
   if (seenFeeClaims.has(key)) return;
-  seenFeeClaims.set(key, now());
   storeSignalEvent(fee.mint, 'fee_claim', 'pump_logs', { signature, fee: buildFeeSnapshot(fee, signature) });
   const route = graduatedCoin && trendingToken
     ? 'fee_graduated_trending'
@@ -41,6 +40,7 @@ export async function handleFeeClaim(fee, signature) {
       route,
     });
   }
+  seenFeeClaims.set(key, now());
 }
 
 async function processLog(logInfo) {
