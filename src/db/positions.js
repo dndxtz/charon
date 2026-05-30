@@ -42,13 +42,15 @@ export function createDryRunPosition(candidateId, candidate, decision, reason = 
     `).get(candidate.token.mint);
     if (existing) return existing.id;
 
+    const dryRunSignature = candidate.signals?.triggerSignature || `DRY-${candidateId}-${now()}`;
+
     const result = db.prepare(`
       INSERT INTO dry_run_positions (
         candidate_id, mint, symbol, status, opened_at_ms, size_sol, entry_price, entry_mcap,
         token_amount_est, high_water_price, high_water_mcap, tp_percent, sl_percent,
         trailing_enabled, trailing_percent, trailing_armed, llm_decision_id, strategy_id, snapshot_json,
-        holder_count_at_entry
-      ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+        holder_count_at_entry, entry_signature, execution_mode
+      ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'dry_run')
     `).run(
       candidateId,
       candidate.token.mint,
@@ -68,6 +70,7 @@ export function createDryRunPosition(candidateId, candidate, decision, reason = 
       strat.id,
       json({ candidate, decision, reason, strategy: strat.id }),
       Number(candidate.metrics.holderCount || 0),
+      dryRunSignature,
     );
     const positionId = Number(result.lastInsertRowid);
     db.prepare(`
