@@ -135,7 +135,7 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
   }
   const tpHit = pnlPercent >= Number(position.tp_percent);
   const slHit = pnlPercent <= Number(position.sl_percent);
-  const trailingArmed = position.trailing_armed || (position.trailing_enabled && tpHit);
+  const trailingArmed = position.trailing_armed || (position.trailing_enabled && (tpHit || (strat?.trailing_arm_at_percent != null && pnlPercent >= strat.trailing_arm_at_percent)));
   const trailDrop = highWaterMcap > 0 ? (Number(mcap) / highWaterMcap - 1) * 100 : 0;
   const trailingHit = trailingArmed && position.trailing_enabled && trailDrop <= -Math.abs(Number(position.trailing_percent));
   let exitReason = null;

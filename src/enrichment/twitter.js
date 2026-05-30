@@ -122,8 +122,11 @@ async function fetchTwitterNarrative(graduatedCoin, gmgn) {
     return result;
   } catch (apiErr) {
     console.log(`[twitter] api ${url} ${apiErr.response?.status || ''} ${apiErr.message}`);
-    // Cache the failure briefly to avoid re-hitting broken endpoints
-    setCachedTweet(url, { url, fxUrl: toFxTwitter(url), text: null, error: apiErr.message });
+    // Don't cache 404s — tweet may not exist yet
+    if (apiErr.response?.status !== 404) {
+      // Cache non-404 failures briefly to avoid spamming broken endpoints
+      setCachedTweet(url, { url, fxUrl: toFxTwitter(url), text: null, error: apiErr.message });
+    }
     return null;
   }
 }
