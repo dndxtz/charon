@@ -194,6 +194,9 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_alerts_status ON price_alerts(status, expires_at_ms);
     CREATE INDEX IF NOT EXISTS idx_candidates_mint ON candidates(mint);
     CREATE INDEX IF NOT EXISTS idx_positions_status ON dry_run_positions(status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_open_position_per_mint
+      ON dry_run_positions(mint)
+      WHERE status = 'open';
     CREATE INDEX IF NOT EXISTS idx_trade_intents_status ON trade_intents(status);
     CREATE INDEX IF NOT EXISTS idx_decision_logs_mint ON decision_logs(selected_mint);
     CREATE INDEX IF NOT EXISTS idx_signal_events_mint ON signal_events(mint);
@@ -207,6 +210,7 @@ export function initDb() {
   ensureColumn('dry_run_positions', 'token_amount_raw', 'TEXT');
   ensureColumn('dry_run_positions', 'strategy_id', "TEXT DEFAULT 'sniper'");
   ensureColumn('dry_run_positions', 'partial_tp_done', 'INTEGER DEFAULT 0');
+  ensureColumn('dry_run_positions', 'circuit_breaker_tripped', 'INTEGER DEFAULT 0');
   ensureColumn('decision_logs', 'strategy_id', 'TEXT');
 
   const defaults = {
@@ -240,6 +244,11 @@ export function initDb() {
     trending_min_swaps: process.env.TRENDING_MIN_SWAPS || '0',
     trending_max_rug_ratio: process.env.TRENDING_MAX_RUG_RATIO || '0.3',
     trending_max_bundler_rate: process.env.TRENDING_MAX_BUNDLER_RATE || '0.5',
+    // Circuit breaker settings
+    max_daily_loss_sol: process.env.MAX_DAILY_LOSS_SOL || '1',
+    max_consecutive_losses: process.env.MAX_CONSECUTIVE_LOSS || '3',
+    max_drawdown_pct: process.env.MAX_DRAWDOWN_PCT || '30',
+    circuit_breaker_enabled: process.env.CIRCUIT_BREAKER_ENABLED || 'true',
   };
   const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   for (const [key, value] of Object.entries(defaults)) insert.run(key, value);

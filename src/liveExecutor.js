@@ -58,6 +58,37 @@ export async function fetchLiveTokenBalance(mint) {
   }
 }
 
+/**
+ * Get all non-zero token accounts in the wallet.
+ * Returns array of { mint, amount, decimals } on success.
+ * Returns null on RPC error (to distinguish from "wallet empty").
+ */
+export async function fetchAllWalletTokenAccounts() {
+  if (!liveWallet || !solanaConnection) return [];
+  try {
+    const accounts = await solanaConnection.getParsedTokenAccountsByOwner(
+      liveWallet.publicKey,
+      { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') },
+      'confirmed',
+    );
+    const tokens = [];
+    for (const { account } of accounts.value) {
+      const info = account.data?.parsed?.info;
+      if (!info) continue;
+      const mint = info.mint;
+      const amount = info.tokenAmount?.amount;
+      const decimals = info.tokenAmount?.decimals;
+      if (mint && amount && Number(amount) > 0) {
+        tokens.push({ mint, amount, decimals });
+      }
+    }
+    return tokens;
+  } catch (err) {
+    console.log(`[live] fetchAllWalletTokenAccounts ERROR: ${err.message}`);
+    return null;
+  }
+}
+
 export function requireLiveExecution() {
   if (!liveWallet || !solanaConnection) throw new Error('SOLANA_PRIVATE_KEY is required for live execution.');
   if (!JUPITER_API_KEY) throw new Error('JUPITER_API_KEY is required for live execution.');

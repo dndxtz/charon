@@ -10,6 +10,7 @@ import { sendBatchReveal, sendTelegram, sendPositionOpen, sendTradeIntent } from
 import { candidateSummary } from '../telegram/format.js';
 import { createTradeIntent } from '../db/intents.js';
 import { refreshCandidateForExecution } from '../execution/positions.js';
+import { checkCircuitBreaker } from '../execution/circuitBreaker.js';
 import { executeLiveBuy } from '../execution/router.js';
 import { graduated } from '../signals/graduated.js';
 import { setDegenHandler } from '../signals/trending.js';
@@ -37,7 +38,7 @@ setInterval(() => {
     const toRemove = entries.slice(0, entries.length - 400); // keep newest 400
     for (const [key] of toRemove) seenSignalCandidates.delete(key);
   }
-}, 5 * 60_1000);
+}, 5 * 60_000);
 
 setDegenHandler(maybeProcessDegenCandidate);
 setCandidateHandler(processCandidateFromSignals);
@@ -47,6 +48,13 @@ export async function processCandidateFromSignals(signals) {
   if (!canOpenMorePositions()) {
     const max = numSetting('max_open_positions', 3);
     console.log(`[agent] max positions reached (${openPositionCount()}/${max}), skipping ${signals.mint.slice(0, 8)}...`);
+    return;
+  }
+
+  // Circuit breaker: halt all new entries if limits exceeded
+  const cb = checkCircuitBreaker();
+  if (cb.tripped) {
+    console.log(`[circuit-breaker] skipping candidate ${signals.mint.slice(0, 8)}...: ${cb.reason}`);
     return;
   }
 
@@ -181,6 +189,14 @@ export async function processCandidateFromSignals(signals) {
 }
 
 export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [], triggerCandidateId = null) {
+  // Circuit breaker check — halt new entries if limits exceeded
+  const cb = checkCircuitBreaker();
+  if (cb.tripped) {
+    console.log(`[circuit-breaker] BLOCKED new entry: ${cb.reason}`);
+    await sendTelegram(`🚫 <b>Circuit Breaker TRIPPED</b>\n\n${cb.reason}\n\nNew trades halted until reset.`);
+    return;
+  }
+
   const mode = tradingMode();
   const freshSelectedRow = await refreshCandidateForExecution(selectedRow);
   const executionRows = rows.map(row => row.id === freshSelectedRow.id ? freshSelectedRow : row);

@@ -122,6 +122,16 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
       if (Number.isFinite(gmgnMcap) && gmgnMcap > 0) mcap = gmgnMcap;
     }
   }
+
+  // Price sanity check: if mcap moved >80% in a single tick, skip this refresh
+  // to avoid false exits from API anomalies
+  if (Number.isFinite(mcap) && Number.isFinite(position.entry_mcap) && Number(position.entry_mcap) > 0) {
+    const mcapChangePct = Math.abs((mcap / Number(position.entry_mcap) - 1) * 100);
+    if (mcapChangePct > 80) {
+      console.log(`[position] ${position.id} price sanity SKIP: mcap swung ${mcapChangePct.toFixed(0)}% ($${position.entry_mcap.toFixed(0)} → $${mcap.toFixed(0)}), skipping tick`);
+      return { ...position, exitReason: null, sanitySkipped: true };
+    }
+  }
   if (!Number.isFinite(Number(mcap)) || !Number.isFinite(Number(position.entry_mcap)) || Number(position.entry_mcap) <= 0) {
     return null;
   }
@@ -151,24 +161,35 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
   if (!exitReason && strat?.partial_tp && !position.partial_tp_done && pnlPercent >= strat.partial_tp_at_percent) {
     db.prepare('UPDATE dry_run_positions SET partial_tp_done = 1 WHERE id = ?').run(position.id);
     console.log(`[position] ${position.id} partial TP at ${pnlPercent.toFixed(1)}% (${strat.partial_tp_sell_percent}% sell)`);
+    const sellFraction = strat.partial_tp_sell_percent / 100;
     if (position.execution_mode === 'live' && position.token_amount_raw) {
       try {
-        const sellAmount = Math.floor(Number(position.token_amount_raw) * (strat.partial_tp_sell_percent / 100));
+        const sellAmount = Math.floor(Number(position.token_amount_raw) * sellFraction);
         if (sellAmount > 0) {
           const sell = await executeLiveSell({ ...position, token_amount_raw: String(sellAmount) }, 'PARTIAL_TP');
           const remaining = Number(position.token_amount_raw) - sellAmount;
-          db.prepare('UPDATE dry_run_positions SET token_amount_raw = ? WHERE id = ?').run(String(remaining), position.id);
+          // Reduce size_sol proportionally to reflect reduced exposure
+          const remainingSol = Number(position.size_sol) * (1 - sellFraction);
+          db.prepare('UPDATE dry_run_positions SET token_amount_raw = ?, size_sol = ? WHERE id = ?').run(String(remaining), remainingSol, position.id);
+          // Update in-memory position so subsequent exit calc uses correct size
+          position.size_sol = remainingSol;
+          position.token_amount_raw = String(remaining);
           db.prepare(`
             INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
             VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, 'PARTIAL_TP', ?)
           `).run(position.id, position.mint, now(), price, mcap,
-            position.size_sol * (strat.partial_tp_sell_percent / 100), sellAmount,
+            Number(position.size_sol) / (1 - sellFraction) * sellFraction, sellAmount,
             json({ pnlPercent, sell, partialSellPercent: strat.partial_tp_sell_percent, remaining }));
-          console.log(`[position] ${position.id} partial TP sold ${sellAmount} tokens, ${remaining} remaining`);
+          console.log(`[position] ${position.id} partial TP sold ${sellAmount} tokens, ${remaining} remaining, size_sol → ${remainingSol.toFixed(6)}`);
         }
       } catch (err) {
         console.log(`[position] ${position.id} partial sell failed: ${err.message}`);
       }
+    } else {
+      // dry_run mode: also adjust size_sol for accurate PnL
+      const remainingSol = Number(position.size_sol) * (1 - sellFraction);
+      db.prepare('UPDATE dry_run_positions SET size_sol = ? WHERE id = ?').run(remainingSol, position.id);
+      position.size_sol = remainingSol;
     }
   }
 

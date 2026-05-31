@@ -1,9 +1,10 @@
 import { setDefaultResultOrder } from 'node:dns';
 import { APP_NAME, SIGNAL_SERVER_URL, SIGNAL_POLL_MS, GRADUATED_POLL_MS, TRENDING_POLL_MS, POSITION_CHECK_MS, validateConfig } from './config.js';
 import { initDb } from './db/connection.js';
-import { initLiveExecution } from './liveExecutor.js';
+import { initLiveExecution, liveWalletPubkey } from './liveExecutor.js';
 import { setupTelegram } from './telegram/commands.js';
 import { monitorPositions } from './execution/positions.js';
+import { reconcile } from './execution/reconcile.js';
 import { processCandidateFromSignals, maybeProcessDegenCandidate } from './pipeline/orchestrator.js';
 import { sendTelegram } from './telegram/send.js';
 import { makeFailureTracker } from './utils.js';
@@ -14,6 +15,13 @@ validateConfig();
 export async function startCharon() {
   initDb();
   initLiveExecution();
+
+  // Reconcile wallet ↔ DB on startup to recover from crashes
+  if (liveWalletPubkey()) {
+    const { reconcile } = await import('./execution/reconcile.js');
+    await reconcile().catch(err => console.log(`[reconcile] error: ${err.message}`));
+  }
+
   setupTelegram();
 
   if (SIGNAL_SERVER_URL) {

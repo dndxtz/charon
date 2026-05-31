@@ -22,6 +22,38 @@ export async function executeLiveBuy(selectedRow, decision, batchId, rows = [], 
   if (balance < amountLamports + LIVE_MIN_SOL_RESERVE_LAMPORTS) {
     throw new Error(`Insufficient SOL balance. Need ${fmtSol((amountLamports + LIVE_MIN_SOL_RESERVE_LAMPORTS) / 1_000_000_000)} SOL including reserve.`);
   }
+
+  // Step 1: Record position BEFORE swap so crash recovery can find it
+  const prePositionId = db.prepare(`
+    INSERT INTO dry_run_positions (
+      candidate_id, mint, symbol, status, opened_at_ms, size_sol, entry_price, entry_mcap,
+      token_amount_est, high_water_price, high_water_mcap, tp_percent, sl_percent,
+      trailing_enabled, trailing_percent, trailing_armed, llm_decision_id,
+      execution_mode, strategy_id, snapshot_json, holder_count_at_entry
+    ) VALUES (?, ?, ?, 'pending_entry', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'live', ?, ?, ?, ?)
+  `).run(
+    selectedRow.id,
+    selectedRow.candidate.token.mint,
+    selectedRow.candidate.token.symbol,
+    now(),
+    strat.position_size_sol ?? numSetting('dry_run_buy_sol', 0.1),
+    Number(selectedRow.candidate.metrics.priceUsd || 0) || null,
+    Number(selectedRow.candidate.metrics.marketCapUsd || selectedRow.candidate.metrics.graduatedMarketCapUsd || 0) || null,
+    null,
+    Number(selectedRow.candidate.metrics.priceUsd || 0) || null,
+    Number(selectedRow.candidate.metrics.marketCapUsd || selectedRow.candidate.metrics.graduatedMarketCapUsd || 0) || null,
+    Number(decision.suggested_tp_percent || strat.tp_percent || numSetting('default_tp_percent', 50)),
+    Number(decision.suggested_sl_percent || strat.sl_percent || numSetting('default_sl_percent', -25)),
+    (strat.trailing_enabled ?? boolSetting('default_trailing_enabled', true)) ? 1 : 0,
+    strat.trailing_percent ?? numSetting('default_trailing_percent', 20),
+    decision.id || null,
+    strat.id,
+    json({ candidate: selectedRow.candidate, decision, batchId, preSwap: true }),
+    Number(selectedRow.candidate.metrics.holderCount || 0),
+  );
+  const positionId = Number(prePositionId.lastInsertRowid);
+
+  // Step 2: Execute swap
   const swap = await executeJupiterSwap({
     inputMint: WSOL_MINT,
     outputMint: selectedRow.candidate.token.mint,
@@ -30,7 +62,29 @@ export async function executeLiveBuy(selectedRow, decision, batchId, rows = [], 
   if (!swap.outputAmount) {
     swap.outputAmount = await fetchLiveTokenBalance(selectedRow.candidate.token.mint) || swap.outputAmount;
   }
-  const positionId = createLivePosition(selectedRow.id, selectedRow.candidate, decision, swap, `live_batch_${batchId}`);
+
+  // Step 3: Mark position as open with actual token amounts
+  db.prepare(`
+    UPDATE dry_run_positions
+    SET status = 'open', entry_signature = ?, token_amount_raw = ?, entry_price = ?, entry_mcap = ?,
+        high_water_price = ?, high_water_mcap = ?
+    WHERE id = ?
+  `).run(
+    swap.signature,
+    swap.outputAmount || null,
+    Number(selectedRow.candidate.metrics.priceUsd || 0) || null,
+    Number(selectedRow.candidate.metrics.marketCapUsd || selectedRow.candidate.metrics.graduatedMarketCapUsd || 0) || null,
+    Number(selectedRow.candidate.metrics.priceUsd || 0) || null,
+    Number(selectedRow.candidate.metrics.marketCapUsd || selectedRow.candidate.metrics.graduatedMarketCapUsd || 0) || null,
+    positionId,
+  );
+
+  // Also update snapshot with swap result
+  db.prepare(`UPDATE dry_run_positions SET snapshot_json = ? WHERE id = ?`).run(
+    json({ candidate: selectedRow.candidate, decision, batchId, swap }),
+    positionId,
+  );
+
   logDecisionEvent({
     batchId,
     triggerCandidateId,

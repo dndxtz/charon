@@ -3,7 +3,11 @@ import { now, json } from '../utils.js';
 import { numSetting, boolSetting, setting, activeStrategy } from './settings.js';
 
 export function openPositions() {
-  return db.prepare('SELECT * FROM dry_run_positions WHERE status = ? ORDER BY opened_at_ms DESC').all('open');
+  return db.prepare("SELECT * FROM dry_run_positions WHERE status = 'open' ORDER BY opened_at_ms DESC").all();
+}
+
+export function pendingPositions() {
+  return db.prepare("SELECT * FROM dry_run_positions WHERE status = 'pending_entry' ORDER BY opened_at_ms DESC").all();
 }
 
 export function openPositionCount() {
@@ -38,7 +42,7 @@ export function createDryRunPosition(candidateId, candidate, decision, reason = 
 
   return db.transaction(() => {
     const existing = db.prepare(`
-      SELECT id FROM dry_run_positions WHERE mint = ? AND status = 'open' LIMIT 1
+      SELECT id FROM dry_run_positions WHERE mint = ? AND status IN ('open', 'pending_entry') LIMIT 1
     `).get(candidate.token.mint);
     if (existing) return existing.id;
 
@@ -50,7 +54,7 @@ export function createDryRunPosition(candidateId, candidate, decision, reason = 
         token_amount_est, high_water_price, high_water_mcap, tp_percent, sl_percent,
         trailing_enabled, trailing_percent, trailing_armed, llm_decision_id, strategy_id, snapshot_json,
         holder_count_at_entry, entry_signature, execution_mode
-      ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'dry_run')
+      ) VALUES (?, ?, ?, 'open', ?, ?,  ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'dry_run')
     `).run(
       candidateId,
       candidate.token.mint,
